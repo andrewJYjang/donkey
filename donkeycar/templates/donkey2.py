@@ -16,7 +16,8 @@ import os
 from docopt import docopt
 import donkeycar as dk
 
-from donkeycar.parts.camera import PiCamera
+#import parts
+from donkeycar.parts.camera import JevoisCamera
 from donkeycar.parts.transform import Lambda
 from donkeycar.parts.keras import KerasLinear
 from donkeycar.parts.actuator import PCA9685, PWMSteering, PWMThrottle
@@ -43,7 +44,7 @@ def drive(cfg, model_path=None, use_chaos=False):
     clock = Timestamp()
     V.add(clock, outputs=['timestamp'])
 
-    cam = PiCamera(resolution=cfg.CAMERA_RESOLUTION)
+    cam = JevoisCamera(camera_id=0)
     V.add(cam, outputs=['cam/image_array'], threaded=True)
 
     ctr = LocalWebController(use_chaos=use_chaos)
