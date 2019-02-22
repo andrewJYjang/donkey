@@ -61,7 +61,7 @@ Alternatively If you know RC or need something the standard Donkey does not supp
 ### Option 1: Buying through an official Donkey Store
 There are two official stores:
 
-If you are in the US, you can use the [Donkey store](https://store.donkeycar.com).  The intention of the Donkey Store is to make it easier and less expensive to build the Donkey Car.  The Donkey Store is run by the original founders of donkey car and profits are used to fund development of the donkey cars.  Also it is worth noting the design of the parts out of the Donkey store is slightly improved over the standard build as it uses better parts that are only available in large quantities or are harder to get.  The Donkey Store builds are open source like all others.   
+If you are in the US, you can use the Donkey store.  The intention of the Donkey Store is to make it easier and less expensive to build the Donkey Car.  The Donkey Store is run by the original founders of donkey car and profits are used to fund development of the donkey cars.  Also it is worth noting the design of the parts out of the Donkey store is slightly improved over the standard build as it uses better parts that are only available in large quantities or are harder to get.  The Donkey Store builds are open source like all others.   
 
 If you are in Asia, the DIYRobocars community in Hong Kong also sells car kits at [Robocar Store](https://www.robocarstore.com/products/donkey-car-starter-kit).  They are long term Donkey community members and use proceeds to support the R&D efforts of this project. It is worth noting they can also sell to Europe and the US but it is likely less cost effective.  
 
@@ -100,7 +100,11 @@ If you want to buy the parts yourself, want to customize your donkey or live out
 
 
 ### Optional Upgrades
+<<<<<<< HEAD
 *  **Sombrero Hat** The sombrero hat replaces the Servo driver and the USB battery and can be purchased at the Donkeycar store [here]() and video instructions can be found [here](https://store.donkeycar.com/collections/accessories/products/sombrero). Implementing the Sombrero hat requires a LiPo battery (see below).  Documentation is in [Github](https://github.com/autorope/Sombrero-hat).
+=======
+*  **Sombrero Hat** The sombrero hat replaces the Servo driver and the USB battery and can be purchased at the Donkeycar store [here](https://squareup.com/store/donkeycar/) and video instructions can be found [here](https://www.youtube.com/watch?v=vuAXdrtNjpk). Implementing the Sombrero hat requires a LiPo battery (see below).
+>>>>>>> updated for sombrero, Pro and latrax prerunner
 
 ![sombrero](../assets/Sombrero_assembled.jpg)
 
