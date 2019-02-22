@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+fe#!/usr/bin/env python3
 """
 Scripts to drive a donkey 2 car and train a model for it.
 
@@ -97,7 +97,7 @@ def drive(cfg, model_path=None, use_chaos=False):
     steering_controller = PCA9685(cfg.STEERING_CHANNEL)
     steering = PWMSteering(controller=steering_controller,
                            left_pulse=cfg.STEERING_LEFT_PWM,
-                           right_pulse=cfg.STEERING_RIGHT_PWM) 
+                           right_pulse=cfg.STEERING_RIGHT_PWM)
 
     throttle_controller = PCA9685(cfg.THROTTLE_CHANNEL)
     throttle = PWMThrottle(controller=throttle_controller,
@@ -175,8 +175,3 @@ if __name__ == '__main__':
         base_model_path = args['--base_model']
         cache = not args['--no_cache']
         train(cfg, tub, new_model_path, base_model_path)
-
-
-
-
-
