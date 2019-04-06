@@ -1,4 +1,4 @@
-fe#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Scripts to drive a donkey 2 car and train a model for it.
 
@@ -22,7 +22,7 @@ from donkeycar.parts.transform import Lambda
 from donkeycar.parts.keras import KerasLinear
 from donkeycar.parts.actuator import PCA9685, PWMSteering, PWMThrottle
 from donkeycar.parts.datastore import TubGroup, TubWriter
-from donkeycar.parts.web_controller import LocalWebController
+from donkeypart_bluetooth_game_controller import XboxGameController
 from donkeycar.parts.clock import Timestamp
 from donkeycar.parts.transform import Lambda
 
@@ -47,7 +47,7 @@ def drive(cfg, model_path=None, use_chaos=False):
     cam = JevoisCamera(camera_id=0)
     V.add(cam, outputs=['cam/image_array'], threaded=True)
 
-    ctr = LocalWebController(use_chaos=use_chaos)
+    ctr = XboxGameController(device_search_term='xbox')
     V.add(ctr,
           inputs=['cam/image_array'],
           outputs=['user/angle', 'user/throttle', 'user/mode', 'recording'],
