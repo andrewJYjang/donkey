@@ -55,7 +55,7 @@ class KerasPilot:
             verbose=1,
             validation_data=val_gen,
             callbacks=callbacks_list,
-            validation_steps=steps * (1.0 - train_split) / train_split)
+            validation_steps=int(steps * (1.0 - train_split) / train_split))
         return hist
 
 
@@ -79,7 +79,7 @@ class KerasLinear(KerasPilot):
 
 
 def default_linear():
-    img_in = Input(shape=(240, 320, 3), name='img_in')
+    img_in = Input(shape=(120, 160, 3), name='img_in')
     x = img_in
 
     # Convolution2D class name is an alias for Conv2D

@@ -16,13 +16,10 @@ import os
 from docopt import docopt
 import donkeycar as dk
 
-#import parts
-from donkeycar.parts.camera import JevoisCamera
 from donkeycar.parts.transform import Lambda
 from donkeycar.parts.keras import KerasLinear
 from donkeycar.parts.actuator import PCA9685, PWMSteering, PWMThrottle
 from donkeycar.parts.datastore import TubGroup, TubWriter
-from donkeypart_bluetooth_game_controller import XboxGameController
 from donkeycar.parts.clock import Timestamp
 from donkeycar.parts.transform import Lambda
 
@@ -38,7 +35,9 @@ def drive(cfg, model_path=None, use_chaos=False):
     Parts may have named outputs and inputs. The framework handles passing named outputs
     to parts requesting the same named input.
     """
-
+    # Use Camera, Bluetooth controller only when you need to drive
+    from donkeycar.parts.camera import JevoisCamera
+    from donkeypart_bluetooth_game_controller import XboxGameController
     V = dk.vehicle.Vehicle()
 
     clock = Timestamp()

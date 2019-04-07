@@ -1,3 +1,5 @@
 {
-    "python.linting.pylintEnabled": false
+    "editor.formatOnSave": false,
+    "python.linting.pylintEnabled": false,
+    "python.pythonPath": "/Users/rahulrav/.local/share/virtualenvs/donkeycar/bin/python"
 }
