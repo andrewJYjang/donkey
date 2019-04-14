@@ -79,7 +79,7 @@ class KerasLinear(KerasPilot):
 
 
 def default_linear():
-    img_in = Input(shape=(120, 160, 3), name='img_in')
+    img_in = Input(shape=(240, 320, 3), name='img_in')
     x = img_in
 
     # Convolution2D class name is an alias for Conv2D
