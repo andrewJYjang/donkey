@@ -37,16 +37,22 @@ def drive(cfg, model_path=None, use_chaos=False):
     """
     # Use Camera, Bluetooth controller only when you need to drive
     from donkeycar.parts.camera import JevoisCamera
-    from donkeypart_bluetooth_game_controller import XboxGameController
-    V = dk.vehicle.Vehicle()
 
+    V = dk.vehicle.Vehicle()
     clock = Timestamp()
     V.add(clock, outputs=['timestamp'])
+
+    if cfg.USE_WEB_CONTROLLER:
+        # Useful in the context of testing.
+        from donkeycar.parts.web_controller import LocalWebController
+        ctr = LocalWebController(use_chaos=use_chaos)
+    else:
+        from donkeypart_bluetooth_game_controller import XboxGameController
+        ctr = XboxGameController(device_search_term='xbox')
 
     cam = JevoisCamera(camera_id=0)
     V.add(cam, outputs=['cam/image_array'], threaded=True)
 
-    ctr = XboxGameController(device_search_term='xbox')
     V.add(ctr,
           inputs=['cam/image_array'],
           outputs=['user/angle', 'user/throttle', 'user/mode', 'recording'],
