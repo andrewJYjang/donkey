@@ -29,6 +29,8 @@ class JevoisCamera(BaseCamera):
     def run(self):
         success, frame = self.capture.read()
         if success:
+            # return an RGB frame.
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             self.frame = frame
         return frame
 

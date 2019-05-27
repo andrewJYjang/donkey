@@ -6,17 +6,16 @@ functions to run and train autopilots using keras
 
 """
 
-from tensorflow.python.keras.layers import Input
-from tensorflow.python.keras.models import Model, load_model
-from tensorflow.python.keras.layers import Convolution2D
-from tensorflow.python.keras.layers import Dropout, Flatten, Dense
-from tensorflow.python.keras.callbacks import ModelCheckpoint, EarlyStopping
+from keras import Input
+from keras.models import Model, load_model
+from keras.layers import Convolution2D, BatchNormalization, Dropout, Flatten, Dense
+from keras.callbacks import ModelCheckpoint, EarlyStopping
 
 
 class KerasPilot:
 
-    def load(self, model_path):
-        self.model = load_model(model_path)
+    def load(self, model_path, compile=True):
+        self.model = load_model(model_path, compile=compile)
 
     def shutdown(self):
         pass
@@ -82,6 +81,7 @@ def default_linear():
     img_in = Input(shape=(120, 160, 3), name='img_in')
     x = img_in
 
+    x = BatchNormalization()(x)
     # Convolution2D class name is an alias for Conv2D
     x = Convolution2D(filters=24, kernel_size=(5, 5), strides=(2, 2), activation='relu')(x)
     x = Convolution2D(filters=32, kernel_size=(5, 5), strides=(2, 2), activation='relu')(x)
@@ -90,13 +90,13 @@ def default_linear():
     x = Convolution2D(filters=64, kernel_size=(3, 3), strides=(1, 1), activation='relu')(x)
 
     x = Flatten(name='flattened')(x)
-    x = Dense(units=100, activation='linear')(x)
+    x = Dense(units=100, activation='relu')(x)
     x = Dropout(rate=.1)(x)
-    x = Dense(units=50, activation='linear')(x)
+    x = Dense(units=50, activation='relu')(x)
     x = Dropout(rate=.1)(x)
+
     # categorical output of the angle
     angle_out = Dense(units=1, activation='linear', name='angle_out')(x)
-
     # continous output of throttle
     throttle_out = Dense(units=1, activation='linear', name='throttle_out')(x)
 
