@@ -36,7 +36,7 @@ def drive(cfg, model_path=None, use_chaos=False):
     to parts requesting the same named input.
     """
     # Use Camera, Bluetooth controller only when you need to drive
-    from donkeycar.parts.camera import JevoisCamera
+    from donkeycar.parts.jevois import JevoisCamera
 
     V = dk.vehicle.Vehicle()
     clock = Timestamp()
