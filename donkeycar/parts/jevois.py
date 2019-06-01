@@ -11,7 +11,7 @@ class BaseCamera:
         return self.frame
 
 class JevoisCamera(BaseCamera):
-    def __init__(self, camera_id=0):
+    def __init__(self, camera_id=0, width=None, height=None):
         super(JevoisCamera, self).__init__()
         self.camera_id = camera_id
         # initialize the frame and the variable used to indicate
@@ -19,6 +19,12 @@ class JevoisCamera(BaseCamera):
         print('Connecting to Jevois Camera.')
         # A handle to the capture session in Jevois.
         self.capture = cv2.VideoCapture(self.camera_id)
+
+        if width is not None:
+            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        if height is not None:
+            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
         time.sleep(2)
         if self.capture.isOpened():
             print('JeVois Connected.')

@@ -21,6 +21,7 @@ DATA_PATH = os.path.join(CAR_PATH, 'data')
 MODELS_PATH = os.path.join(CAR_PATH, 'models')
 
 #USE TRANSFER LEARNING
+KERAS_SHAPE = (128, 128, 3) # height, width, channels
 USE_TRANSFER_LEARNING = False
 
 #CONTROLLER
@@ -31,7 +32,7 @@ DRIVE_LOOP_HZ = 20
 MAX_LOOPS = 100000
 
 #CAMERA
-CAMERA_RESOLUTION = (120, 160) # height, width
+CAMERA_RESOLUTION = (128, 128) # height, width
 CAMERA_FRAMERATE = DRIVE_LOOP_HZ
 
 #STEERING

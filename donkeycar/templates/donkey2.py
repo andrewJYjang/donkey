@@ -51,7 +51,8 @@ def drive(cfg, model_path=None, use_chaos=False):
         from donkeypart_bluetooth_game_controller import XboxGameController
         ctr = XboxGameController(device_search_term='xbox')
 
-    cam = JevoisCamera(camera_id=0)
+    resolution = cfg.CAMERA_RESOLUTION
+    cam = JevoisCamera(camera_id=0, width=resolution[1], height=resolution[0])
     V.add(cam, outputs=['cam/image_array'], threaded=True)
 
     V.add(ctr,
@@ -73,10 +74,13 @@ def drive(cfg, model_path=None, use_chaos=False):
           outputs=['run_pilot'])
 
     # Run the pilot if the mode is not user.
+    shape = cfg.KERAS_SHAPE
     if cfg.USE_TRANSFER_LEARNING:
-        kl = KerasTransfer()
+        print('Using Transfer Learning with Shape %s' % (shape,))
+        kl = KerasTransfer(shape=shape)
     else:
-        kl = KerasLinear()
+        print('Using KerasLinear with Shape %s' % (shape,))
+        kl = KerasLinear(shape=shape)
 
     if model_path:
         kl.load(model_path)
@@ -146,10 +150,13 @@ def train(cfg, tub_names, new_model_path, base_model_path=None):
 
     new_model_path = os.path.expanduser(new_model_path)
 
+    shape = cfg.KERAS_SHAPE
     if cfg.USE_TRANSFER_LEARNING:
-        kl = KerasTransfer()
+        print('Using Transfer Learning with Shape %s' % (shape,))
+        kl = KerasTransfer(shape=shape)
     else:
-        kl = KerasLinear()
+        print('Using KerasLinear with Shape %s' % (shape,))
+        kl = KerasLinear(shape=shape)
 
     if base_model_path is not None:
         base_model_path = os.path.expanduser(base_model_path)

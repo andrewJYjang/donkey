@@ -59,11 +59,11 @@ class KerasPilot:
 
 
 class KerasLinear(KerasPilot):
-    def __init__(self, model=None, num_outputs=None, *args, **kwargs):
+    def __init__(self, shape, model=None, num_outputs=None, *args, **kwargs):
         super(KerasLinear, self).__init__(*args, **kwargs)
         if model:
             self.model = model
-        self.model = default_linear()
+        self.model = default_linear(shape)
 
     def run(self, img_arr):
         img_arr = img_arr.reshape((1,) + img_arr.shape)
@@ -76,11 +76,11 @@ class KerasLinear(KerasPilot):
 
 class KerasTransfer(KerasPilot):
     from keras.applications.mobilenet_v2 import preprocess_input
-    def __init__(self, model=None, num_outputs=None, *args, **kwargs):
+    def __init__(self, shape, model=None, num_outputs=None, *args, **kwargs):
         super(KerasTransfer, self).__init__(*args, **kwargs)
         if model:
             self.model = model
-        self.model = default_transfer()
+        self.model = default_transfer(shape)
 
     def run(self, img_arr):
         img_arr = preprocess_input(img_arr)
@@ -91,8 +91,8 @@ class KerasTransfer(KerasPilot):
         return steering[0][0], throttle[0][0]
 
 
-def default_linear():
-    img_in = Input(shape=(120, 160, 3), name='img_in')
+def default_linear(shape):
+    img_in = Input(shape=shape, name='img_in')
     x = img_in
 
     x = BatchNormalization()(x)
@@ -123,9 +123,9 @@ def default_linear():
 
     return model
 
-def default_transfer():
+def default_transfer(shape):
     from keras.applications.mobilenet_v2 import MobileNetV2
-    base = MobileNetV2(input_shape=(120, 160, 3), include_top=False, weights='imagenet')
+    base = MobileNetV2(input_shape=shape, include_top=False, weights='imagenet')
     # Mark base layers as not trainable
     for layer in base.layers:
       layer.trainable = False
