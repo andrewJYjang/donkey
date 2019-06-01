@@ -17,10 +17,11 @@ from docopt import docopt
 import donkeycar as dk
 
 from donkeycar.parts.transform import Lambda
-from donkeycar.parts.keras import KerasLinear
+from donkeycar.parts.keras import KerasLinear, KerasTransfer
 from donkeycar.parts.actuator import PCA9685, PWMSteering, PWMThrottle
 from donkeycar.parts.datastore import TubGroup, TubWriter
 from donkeycar.parts.clock import Timestamp
+from donkeycar.parts.datastore import TubGroup, TubWriter
 from donkeycar.parts.transform import Lambda
 
 
@@ -72,7 +73,11 @@ def drive(cfg, model_path=None, use_chaos=False):
           outputs=['run_pilot'])
 
     # Run the pilot if the mode is not user.
-    kl = KerasLinear()
+    if cfg.USE_TRANSFER_LEARNING:
+        kl = KerasTransfer()
+    else:
+        kl = KerasLinear()
+
     if model_path:
         kl.load(model_path)
 
@@ -141,7 +146,11 @@ def train(cfg, tub_names, new_model_path, base_model_path=None):
 
     new_model_path = os.path.expanduser(new_model_path)
 
-    kl = KerasLinear()
+    if cfg.USE_TRANSFER_LEARNING:
+        kl = KerasTransfer()
+    else:
+        kl = KerasLinear()
+
     if base_model_path is not None:
         base_model_path = os.path.expanduser(base_model_path)
         kl.load(base_model_path)

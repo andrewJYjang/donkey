@@ -63,15 +63,29 @@ class KerasLinear(KerasPilot):
         super(KerasLinear, self).__init__(*args, **kwargs)
         if model:
             self.model = model
-        elif num_outputs is not None:
-            self.model = default_linear()
-        else:
-            self.model = default_linear()
+        self.model = default_linear()
 
     def run(self, img_arr):
         img_arr = img_arr.reshape((1,) + img_arr.shape)
         outputs = self.model.predict(img_arr)
         # print(len(outputs), outputs)
+        steering = outputs[0]
+        throttle = outputs[1]
+        return steering[0][0], throttle[0][0]
+
+
+class KerasTransfer(KerasPilot):
+    from keras.applications.mobilenet_v2 import preprocess_input
+    def __init__(self, model=None, num_outputs=None, *args, **kwargs):
+        super(KerasTransfer, self).__init__(*args, **kwargs)
+        if model:
+            self.model = model
+        self.model = default_transfer()
+
+    def run(self, img_arr):
+        img_arr = preprocess_input(img_arr)
+        img_arr = img_arr.reshape((1,) + img_arr.shape)
+        outputs = self.model.predict(img_arr)
         steering = outputs[0]
         throttle = outputs[1]
         return steering[0][0], throttle[0][0]
@@ -102,6 +116,31 @@ def default_linear():
 
     model = Model(inputs=[img_in], outputs=[angle_out, throttle_out])
 
+    model.compile(optimizer='adam',
+                  loss={'angle_out': 'mean_squared_error',
+                        'throttle_out': 'mean_squared_error'},
+                  loss_weights={'angle_out': 0.5, 'throttle_out': .5})
+
+    return model
+
+def default_transfer():
+    from keras.applications.mobilenet_v2 import MobileNetV2
+    base = MobileNetV2(input_shape=(120, 160, 3), include_top=False, weights='imagenet')
+    # Mark base layers as not trainable
+    for layer in base.layers:
+      layer.trainable = False
+
+    x = Flatten(name='flattened')(base.output)
+    x = Dense(units=100, activation='relu')(x)
+    x = Dropout(rate=.1)(x)
+    x = Dense(units=50, activation='relu')(x)
+    x = Dropout(rate=.1)(x)
+
+    # Outputs
+    angle_out = Dense(units=1, activation='relu', name='angle_out')(x)
+    throttle_out = Dense(units=1, activation='relu', name='throttle_out')(x)
+
+    model = Model(inputs=base.input, outputs=[angle_out, throttle_out])
     model.compile(optimizer='adam',
                   loss={'angle_out': 'mean_squared_error',
                         'throttle_out': 'mean_squared_error'},
