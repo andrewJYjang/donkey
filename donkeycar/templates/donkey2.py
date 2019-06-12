@@ -153,7 +153,7 @@ def train(cfg, tub_names, new_model_path, base_model_path=None):
     shape = cfg.KERAS_SHAPE
     if cfg.USE_TRANSFER_LEARNING:
         print('Using Transfer Learning with Shape %s' % (shape,))
-        kl = KerasTransfer(shape=shape)
+        kl = KerasTransfer(shape=shape, alpha=0.8)
     else:
         print('Using KerasLinear with Shape %s' % (shape,))
         kl = KerasLinear(shape=shape)

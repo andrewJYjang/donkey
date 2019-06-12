@@ -14,17 +14,13 @@ class JevoisCamera(BaseCamera):
     def __init__(self, camera_id=0, width=None, height=None):
         super(JevoisCamera, self).__init__()
         self.camera_id = camera_id
+        self.width = width
+        self.height = height
         # initialize the frame and the variable used to indicate
         # if the thread should be stopped
         print('Connecting to Jevois Camera.')
         # A handle to the capture session in Jevois.
         self.capture = cv2.VideoCapture(self.camera_id)
-
-        if width is not None:
-            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        if height is not None:
-            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-
         time.sleep(2)
         if self.capture.isOpened():
             print('JeVois Connected.')
@@ -33,22 +29,22 @@ class JevoisCamera(BaseCamera):
             print('Unable to connect. Are you sure you are using the right camera id ?')
 
     def run(self):
-        success, frame = self.capture.read()
-        if success:
-            # return an RGB frame.
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            self.frame = frame
-        return frame
+        return self.read_frame()
 
     def update(self):
         # keep looping infinitely until the thread is stopped
         # if the thread indicator variable is set, stop the thread
         while self.on:
-            success, frame = self.capture.read()
-            if success:
-                # return an RGB frame.
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                self.frame = frame
+            return self.read_frame()
+
+    def read_frame(self):
+        success, frame = self.capture.read()
+        if success:
+            # return an RGB frame with the target size.
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame = cv2.resize(frame, (self.width, self.height))
+            self.frame = frame
+        return frame
 
     def shutdown(self):
         # indicate that the thread should be stopped
