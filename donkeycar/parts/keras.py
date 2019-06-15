@@ -7,25 +7,40 @@ functions to run and train autopilots using keras
 """
 
 from keras import Input
+from keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input
 from keras.models import Model, load_model
 from keras.layers import Convolution2D, BatchNormalization, Dropout, Flatten, Dense
 from keras.callbacks import ModelCheckpoint, EarlyStopping
-
+import tensorflow as tf
+import os
 
 class KerasPilot:
 
+    def __init__(self):
+        self.use_tf_lite = False
+
     def load(self, model_path, compile=True):
-        self.model = load_model(model_path, compile=compile)
+        tflite_path = '%s.tflite' % (model_path)
+        if os.path.exists(tflite_path):
+            print('Loading TFLite model from %s' % (tflite_path))
+            self.interpreter = tf.lite.Interpreter(model_path=tflite_path)
+            self.interpreter.allocate_tensors()
+            self.input_details = self.interpreter.get_input_details()
+            self.output_details = self.interpreter.get_output_details()
+            self.use_tf_lite = True
+        else:
+            print('Using Keras Model from %s' % (model_path))
+            self.model = load_model(model_path, compile=compile)
+            self.use_tf_lite = False
 
     def shutdown(self):
         pass
 
     def train(self, train_gen, val_gen,
               saved_model_path, epochs=100, steps=100, train_split=0.8,
-              verbose=1, min_delta=.0005, patience=5, use_early_stop=True):
+              verbose=1, min_delta=.0005, patience=10, use_early_stop=True):
         """
         train_gen: generator that yields an array of images an array of
-
         """
 
         # checkpoint to save model after each epoch
@@ -55,6 +70,15 @@ class KerasPilot:
             validation_data=val_gen,
             callbacks=callbacks_list,
             validation_steps=int(steps * (1.0 - train_split) / train_split))
+
+        # Convert to TFLite model
+        converter = tf.lite.TFLiteConverter.from_keras_model_file(saved_model_path)
+        tflite_model = converter.convert()
+        tflite_path = '%s.tflite' % (saved_model_path)
+        with open(tflite_path, 'wb') as lite:
+            lite.write(tflite_model)
+
+        print('Saved TFLite Model to %s' % (tflite_path))
         return hist
 
 
@@ -67,15 +91,21 @@ class KerasLinear(KerasPilot):
 
     def run(self, img_arr):
         img_arr = img_arr.reshape((1,) + img_arr.shape)
-        outputs = self.model.predict(img_arr)
-        # print(len(outputs), outputs)
-        steering = outputs[0]
-        throttle = outputs[1]
-        return steering[0][0], throttle[0][0]
+        if self.use_tf_lite:
+            self.interpreter.set_tensor(self.input_details[0]['index'], img_arr)
+            self.interpreter.invoke()
+            outputs = self.interpreter.tensor(self.output_details[0]['index'])
+            steering = outputs[0]
+            throttle = outputs[1]
+            return steering[0][0], throttle[0][0]
+        else:
+            outputs = self.model.predict(img_arr)
+            steering = outputs[0]
+            throttle = outputs[1]
+            return steering[0][0], throttle[0][0]
 
 
 class KerasTransfer(KerasPilot):
-    from keras.applications.mobilenet_v2 import preprocess_input
     def __init__(self, shape, model=None, alpha=1.0, num_outputs=None, *args, **kwargs):
         super(KerasTransfer, self).__init__(*args, **kwargs)
         if model:
@@ -85,10 +115,18 @@ class KerasTransfer(KerasPilot):
     def run(self, img_arr):
         img_arr = preprocess_input(img_arr)
         img_arr = img_arr.reshape((1,) + img_arr.shape)
-        outputs = self.model.predict(img_arr)
-        steering = outputs[0]
-        throttle = outputs[1]
-        return steering[0][0], throttle[0][0]
+        if self.use_tf_lite:
+            self.interpreter.set_tensor(self.input_details[0]['index'], img_arr)
+            self.interpreter.invoke()
+            outputs = self.interpreter.tensor(self.output_details[0]['index'])
+            steering = outputs[0]
+            throttle = outputs[1]
+            return steering[0][0], throttle[0][0]
+        else:
+            outputs = self.model.predict(img_arr)
+            steering = outputs[0]
+            throttle = outputs[1]
+            return steering[0][0], throttle[0][0]
 
 
 def default_linear(shape):
@@ -124,17 +162,16 @@ def default_linear(shape):
     return model
 
 def default_transfer(shape, alpha):
-    from keras.applications.mobilenet_v2 import MobileNetV2
     base = MobileNetV2(input_shape=shape, alpha=alpha, include_top=False, weights='imagenet')
     # Mark base layers as not trainable
     for layer in base.layers:
       layer.trainable = False
 
     x = Flatten(name='flattened')(base.output)
-    x = Dense(units=100, activation='relu')(x)
-    x = Dropout(rate=.1)(x)
-    x = Dense(units=50, activation='relu')(x)
-    x = Dropout(rate=.1)(x)
+    x = Dense(units=128, activation='relu')(x)
+    x = Dropout(rate=.5)(x)
+    x = Dense(units=64, activation='relu')(x)
+    x = Dropout(rate=.5)(x)
 
     # Outputs
     angle_out = Dense(units=1, activation='relu', name='angle_out')(x)

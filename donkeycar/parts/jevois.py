@@ -29,13 +29,14 @@ class JevoisCamera(BaseCamera):
             print('Unable to connect. Are you sure you are using the right camera id ?')
 
     def run(self):
-        return self.read_frame()
+        self.read_frame()
+        return self.frame
 
     def update(self):
         # keep looping infinitely until the thread is stopped
         # if the thread indicator variable is set, stop the thread
         while self.on:
-            return self.read_frame()
+            self.read_frame()
 
     def read_frame(self):
         success, frame = self.capture.read()
@@ -44,7 +45,6 @@ class JevoisCamera(BaseCamera):
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frame = cv2.resize(frame, (self.width, self.height))
             self.frame = frame
-        return frame
 
     def shutdown(self):
         # indicate that the thread should be stopped
