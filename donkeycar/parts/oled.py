@@ -101,10 +101,13 @@ class OLEDPart(object):
             self.on = True
 
     def run_threaded(self, recording, num_records, user_mode):
+        if num_records is not None and num_records > 0:
+            self.num_records = num_records
+
         if recording:
-            self.recording = 'YES (%s)' % (num_records)
+            self.recording = 'YES (Records = %s)' % (self.num_records)
         else:
-            self.recording = 'NO'
+            self.recording = 'NO (Records = %s)' % (self.num_records)
 
         self.user_mode = 'User Mode (%s)' % (user_mode)
         self.update()
