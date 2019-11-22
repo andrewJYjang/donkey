@@ -26,6 +26,27 @@ class TestSeekeable(unittest.TestCase):
             appendable.seek_line_start(2)
             self.assertEqual(appendable.readline(), 'Line 2 Revised\n')
 
+    def test_read_from_and_update(self):
+        appendable = Seekable(self._path)
+        with appendable:
+            appendable.writeline('Line 1')
+            appendable.writeline('Line 2')
+            appendable.writeline('Line 3')
+            # Test idempotent read
+            current_offset = appendable.file.tell()
+            lines = appendable.read_from(2)
+            self.assertEqual(len(lines), 2)
+            self.assertEqual(lines[0], 'Line 2\n')
+            self.assertEqual(lines[1], 'Line 3\n')
+            self.assertEqual(appendable.file.tell(), current_offset)
+            # Test update
+            appendable.update_line(1, 'Line 1 is longer')
+            lines = appendable.read_from(1)
+            self.assertEqual(len(lines), 3)
+            self.assertEqual(lines[0], 'Line 1 is longer\n')
+            self.assertEqual(lines[1], 'Line 2\n')
+            self.assertEqual(lines[2], 'Line 3\n')
+
     def test_read_contents(self):
         appendable = Seekable(self._path)
         with appendable:
