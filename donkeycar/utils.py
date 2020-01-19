@@ -289,6 +289,25 @@ def my_ip():
     s.connect(('192.0.0.8', 1027))
     return s.getsockname()[0]
 
+'''
+THROTTLE
+'''
+
+STEERING_MIN = -1.
+STEERING_MAX = 1.
+EXP_SCALING_FACTOR = 0.5
+DAMPENING = 0.05
+
+def _steering(input_value):
+    input_value = clamp(input_value, STEERING_MIN, STEERING_MAX)
+    return ((input_value - STEERING_MIN) / (STEERING_MAX - STEERING_MIN))
+
+
+def throttle(input_value):
+    magnitude = _steering(input_value)
+    decay = math.exp(magnitude * EXP_SCALING_FACTOR)
+    dampening = DAMPENING * magnitude
+    return ((1 / decay) - dampening)
 
 '''
 OTHER
@@ -466,6 +485,9 @@ def get_model_by_type(model_type, cfg):
         # to happen when using TF-GPU for training.
         from donkeycar.parts.tensorrt import TensorRTLinear
         kl = TensorRTLinear(cfg=cfg)
+    elif model_type == "inferred":
+        from donkeycar.parts.keras import KerasInferred
+        kl = KerasInferred(input_shape=input_shape)
     elif model_type == "coral_tflite_linear":
         from donkeycar.parts.coral import CoralLinearPilot
         kl = CoralLinearPilot()
