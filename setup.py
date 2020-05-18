@@ -41,8 +41,6 @@ setup(name='donkeycar',
                       'tornado',
                       'requests',
                       'h5py',
-                      'moviepy',
-                      'pandas',
                       'PrettyTable',
                       'paho-mqtt'
                      ],
