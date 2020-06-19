@@ -1,570 +1,143 @@
 #!/usr/bin/env python3
-"""
+'''
 Scripts to train a keras model using tensorflow.
-Uses the data written by the donkey v2.2 tub writer,
-but faster training with proper sampling of distribution over tubs. 
-Has settings for continuous training that will look for new files as it trains. 
-Modify on_best_model if you wish continuous training to update your pi as it builds.
-You can drop this in your ~/mycar dir.
-Basic usage should feel familiar: python train.py --model models/mypilot
-
+Basic usage should feel familiar: python train_v2.py --model models/mypilot
 
 Usage:
-    train.py [--tub=<tub1,tub2,..tubn>] [--file=<file> ...] (--model=<model>) [--transfer=<model>] [--type=(linear|latent|categorical|rnn|imu|behavior|3d|look_ahead|tensorrt_linear|tflite_linear|coral_tflite_linear)] [--figure_format=<figure_format>] [--continuous] [--aug]
+    train.py [--tubs=tubs] (--model=<model>) [--type=(linear|inferred|tensorrt_linear|tflite_linear)]
 
 Options:
     -h --help              Show this screen.
-    -f --file=<file>       A text file containing paths to tub files, one per line. Option may be used more than once.
-    --figure_format=png    The file format of the generated figure (see https://matplotlib.org/api/_as_gen/matplotlib.pyplot.savefig.html), e.g. 'png', 'pdf', 'svg', ...
-"""
+'''
+
 import os
-import glob
 import random
-import json
-import time
-import zlib
-from os.path import basename, join, splitext, dirname
-import pickle
-import datetime
+from pathlib import Path
 
-from tensorflow.python import keras
-from docopt import docopt
+import cv2
 import numpy as np
+from docopt import docopt
 from PIL import Image
+from sklearn.model_selection import train_test_split
+from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.python.keras.utils.data_utils import Sequence
 
-import donkeycar as dk
-from donkeycar.parts.datastore import Tub
-from donkeycar.parts.keras import KerasLinear, KerasIMU,\
-     KerasCategorical, KerasBehavioral, Keras3D_CNN,\
-     KerasRNN_LSTM, KerasLatent, KerasLocalizer
-from donkeycar.parts.augment import augment_image
-from donkeycar.utils import *
-
-figure_format = 'png'
+import donkeycar
+from donkeycar.parts.keras import KerasInferred
+from donkeycar.parts.tub_v2 import Tub
+from donkeycar.utils import get_model_by_type, load_scaled_image_arr
 
 
-'''
-matplotlib can be a pain to setup on a Mac. So handle the case where it is absent. When present,
-use it to generate a plot of training results.
-'''
-try:
-    import matplotlib.pyplot as plt
-    do_plot = True
-except:
-    do_plot = False
-    print("matplotlib not installed")
-    
-
-'''
-Tub management
-'''
-def make_key(sample):
-    tub_path = sample['tub_path']
-    index = sample['index']
-    return tub_path + str(index)
-
-def make_next_key(sample, index_offset):
-    tub_path = sample['tub_path']
-    index = sample['index'] + index_offset
-    return tub_path + str(index)
-
-
-def collate_records(records, gen_records, opts):
+class TubDataset(object):
     '''
-    open all the .json records from records list passed in,
-    read their contents,
-    add them to a list of gen_records, passed in.
-    use the opts dict to specify config choices
+    Loads the dataset, and creates a train/test split.
     '''
+    def __init__(self, tub_paths, test_size=0.2, shuffle=True):
+        self.tub_paths = tub_paths
+        self.test_size = test_size
+        self.shuffle = shuffle
+        self.tubs = [Tub(tub_path) for tub_path in self.tub_paths]
+        self.records = list()
 
-    new_records = {}
-    
-    for record_path in records:
+    def train_test_split(self):
+        print('Loading tubs from paths %s' % (self.tub_paths))
+        for tub in self.tubs:
+            for record in tub:
+                record['_image_base_path'] = tub.images_base_path
+                self.records.append(record)
 
-        basepath = os.path.dirname(record_path)        
-        index = get_record_index(record_path)
-        sample = { 'tub_path' : basepath, "index" : index }
-             
-        key = make_key(sample)
-
-        if key in gen_records:
-            continue
-
-        try:
-            with open(record_path, 'r') as fp:
-                json_data = json.load(fp)
-        except:
-            continue
-
-        image_filename = json_data["cam/image_array"]
-        image_path = os.path.join(basepath, image_filename)
-
-        sample['record_path'] = record_path
-        sample["image_path"] = image_path
-        sample["json_data"] = json_data        
-
-        angle = float(json_data['user/angle'])
-        throttle = float(json_data["user/throttle"])
-
-        if opts['categorical']:
-            angle = dk.utils.linear_bin(angle)
-            throttle = dk.utils.linear_bin(throttle, N=20, offset=0, R=opts['cfg'].MODEL_CATEGORICAL_MAX_THROTTLE_RANGE)
-
-        sample['angle'] = angle
-        sample['throttle'] = throttle
-
-        try:
-            accl_x = float(json_data['imu/acl_x'])
-            accl_y = float(json_data['imu/acl_y'])
-            accl_z = float(json_data['imu/acl_z'])
-
-            gyro_x = float(json_data['imu/gyr_x'])
-            gyro_y = float(json_data['imu/gyr_y'])
-            gyro_z = float(json_data['imu/gyr_z'])
-
-            sample['imu_array'] = np.array([accl_x, accl_y, accl_z, gyro_x, gyro_y, gyro_z])
-        except:
-            pass
-
-        try:
-            behavior_arr = np.array(json_data['behavior/one_hot_state_array'])
-            sample["behavior_arr"] = behavior_arr
-        except:
-            pass
-
-        try:
-            location_arr = np.array(json_data['location/one_hot_state_array'])
-            sample["location"] = location_arr
-        except:
-            pass
+        return train_test_split(self.records, test_size=self.test_size, shuffle=self.shuffle)
 
 
-        sample['img_data'] = None
+class TubSequence(Sequence):
+    def __init__(self, keras_model, config, records=list()):
+        self.keras_model = keras_model
+        self.config = config
+        self.records = records
+        self.batch_size = self.config.BATCH_SIZE
 
-        # Initialise 'train' to False
-        sample['train'] = False
+    def __len__(self):
+        return len(self.records) // self.batch_size
+
+    def __getitem__(self, index):
+        count = 0
+        records = []
+        images = []
+        angles = []
+        throttles = []
+
+        is_inferred = type(self.keras_model) is KerasInferred
+
+        while count < self.batch_size:
+            i = (index * self.batch_size) + count
+            if i >= len(self.records):
+                break
+
+            record = self.records[i]
+            record = self._transform_record(record)
+            records.append(record)
+            count += 1
+
+        for record in records:
+            image = record['cam/image_array']
+            angle = record['user/angle']
+            throttle = record['user/throttle']
         
-        # We need to maintain the correct train - validate ratio across the dataset, even if continous training
-        # so don't add this sample to the main records list (gen_records) yet.
-        new_records[key] = sample
-        
-    # new_records now contains all our NEW samples
-    # - set a random selection to be the training samples based on the ratio in CFG file
-    shufKeys = list(new_records.keys())
-    random.shuffle(shufKeys)
-    trainCount = 0
-    #  Ratio of samples to use as training data, the remaining are used for evaluation
-    targetTrainCount = int(opts['cfg'].TRAIN_TEST_SPLIT * len(shufKeys))
-    for key in shufKeys:
-        new_records[key]['train'] = True
-        trainCount += 1
-        if trainCount >= targetTrainCount:
-            break
-    # Finally add all the new records to the existing list
-    gen_records.update(new_records)
+            images.append(image)
+            angles.append(angle)
+            throttles.append(throttle)
 
-def save_json_and_weights(model, filename):
+        X = np.array(images)
+
+        if is_inferred:
+            Y = np.array(angles)
+        else:
+            Y = [np.array(angles), np.array(throttles)]
+
+        return X, Y
+
+    def _transform_record(self, record):
+        for key, value in record.items():
+            if key == 'cam/image_array' and isinstance(value, str):
+                image_path = os.path.join(record['_image_base_path'], value)
+                image = load_scaled_image_arr(image_path, self.config)
+                record[key] = image
+
+        return record
+
+
+class ImagePreprocessing(Sequence):
     '''
-    given a keras model and a .h5 filename, save the model file
-    in the json format and the weights file in the h5 format
+    A Sequence which wraps another Sequence with an Image Augumentation.
     '''
-    if not '.h5' == filename[-3:]:
-        raise Exception("Model filename should end with .h5")
+    def __init__(self, sequence, augmentation):
+        self.sequence = sequence
+        self.augumentation = augmentation
 
-    arch = model.to_json()
-    json_fnm = filename[:-2] + "json"
-    weights_fnm = filename[:-2] + "weights"
+    def __len__(self):
+        return len(self.sequence)
 
-    with open(json_fnm, "w") as outfile:
-        parsed = json.loads(arch)
-        arch_pretty = json.dumps(parsed, indent=4, sort_keys=True)
-        outfile.write(arch_pretty)
-
-    model.save_weights(weights_fnm)
-    return json_fnm, weights_fnm
+    def __getitem__(self, index):
+        X, Y = self.sequence[index]
+        return self.augumentation.augment_images(X), Y
 
 
-class MyCPCallback(keras.callbacks.ModelCheckpoint):
+def train(cfg, tub_paths, output_path, model_type):
     '''
-    custom callback to interact with best val loss during continuous training
+    Train the model
     '''
-
-    def __init__(self, send_model_cb=None, cfg=None, *args, **kwargs):
-        super(MyCPCallback, self).__init__(*args, **kwargs)
-        self.reset_best_end_of_epoch = False
-        self.send_model_cb = send_model_cb
-        self.last_modified_time = None
-        self.cfg = cfg
-
-    def reset_best(self):
-        self.reset_best_end_of_epoch = True
-
-    def on_epoch_end(self, epoch, logs=None):
-        super(MyCPCallback, self).on_epoch_end(epoch, logs)
-
-        if self.send_model_cb:
-            '''
-            check whether the file changed and send to the pi
-            '''
-            filepath = self.filepath.format(epoch=epoch, **logs)
-            if os.path.exists(filepath):
-                last_modified_time = os.path.getmtime(filepath)
-                if self.last_modified_time is None or self.last_modified_time < last_modified_time:
-                    self.last_modified_time = last_modified_time
-                    self.send_model_cb(self.cfg, self.model, filepath)
-
-        '''
-        when reset best is set, we want to make sure to run an entire epoch
-        before setting our new best on the new total records
-        '''        
-        if self.reset_best_end_of_epoch:
-            self.reset_best_end_of_epoch = False
-            self.best = np.Inf
-        
-
-def on_best_model(cfg, model, model_filename):
-
-    model.save(model_filename, include_optimizer=False)
-        
-    if not cfg.SEND_BEST_MODEL_TO_PI:
-        return
-
-    on_windows = os.name == 'nt'
-
-    #If we wish, send the best model to the pi.
-    #On mac or linux we have scp:
-    if not on_windows:
-        print('sending model to the pi')
-        
-        command = 'scp %s %s@%s:~/%s/models/;' % (model_filename, cfg.PI_USERNAME, cfg.PI_HOSTNAME, cfg.PI_DONKEY_ROOT)
-    
-        print("sending", command)
-        res = os.system(command)
-        print(res)
-
-    else: #yes, we are on windows machine
-
-        #On windoz no scp. In order to use this you must first setup
-        #an ftp daemon on the pi. ie. sudo apt-get install vsftpd
-        #and then make sure you enable write permissions in the conf
-        try:
-            import paramiko
-        except:
-            raise Exception("first install paramiko: pip install paramiko")
-
-        host = cfg.PI_HOSTNAME
-        username = cfg.PI_USERNAME
-        password = cfg.PI_PASSWD
-        server = host
-        files = []
-
-        localpath = model_filename
-        remotepath = '/home/%s/%s/%s' %(username, cfg.PI_DONKEY_ROOT, model_filename.replace('\\', '/'))
-        files.append((localpath, remotepath))
-
-        print("sending", files)
-
-        try:
-            ssh = paramiko.SSHClient()
-            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.load_host_keys(os.path.expanduser(os.path.join("~", ".ssh", "known_hosts")))
-            ssh.connect(server, username=username, password=password)
-            sftp = ssh.open_sftp()
-        
-            for localpath, remotepath in files:
-                sftp.put(localpath, remotepath)
-
-            sftp.close()
-            ssh.close()
-            print("send succeded")
-        except:
-            print("send failed")
-    
-
-def train(cfg, tub_names, model_name, transfer_model, model_type, continuous, aug):
-    '''
-    use the specified data in tub_names to train an artifical neural network
-    saves the output trained model as model_name
-    ''' 
-    verbose = cfg.VERBOSE_TRAIN
-
-    if model_type is None:
-        model_type = cfg.DEFAULT_MODEL_TYPE
-
-    if "tflite" in model_type:
-        #even though we are passed the .tflite output file, we train with an intermediate .h5
-        #output and then convert to final .tflite at the end.
-        assert(".tflite" in model_name)
-        #we only support the linear model type right now for tflite
-        assert("linear" in model_type)
-        model_name = model_name.replace(".tflite", ".h5")
-    elif "tensorrt" in model_type:
-        #even though we are passed the .uff output file, we train with an intermediate .h5
-        #output and then convert to final .uff at the end.
-        assert(".uff" in model_name)
-        #we only support the linear model type right now for tensorrt
-        assert("linear" in model_type)
-        model_name = model_name.replace(".uff", ".h5")
-
-    if model_name and not '.h5' == model_name[-3:]:
-        raise Exception("Model filename should end with .h5")
-    
-    if continuous:
-        print("continuous training")
-    
-    gen_records = {}
-    opts = { 'cfg' : cfg}
-
-    if "linear" in model_type:
-        train_type = "linear"
+    if 'linear' in model_type:
+        train_type = 'linear'
     else:
         train_type = model_type
 
-    kl = get_model_by_type(train_type, cfg=cfg)
-
-    opts['categorical'] = type(kl) in [KerasCategorical, KerasBehavioral]
-
-    print('training with model type', type(kl))
-
-    if transfer_model:
-        print('loading weights from model', transfer_model)
-        kl.load(transfer_model)
-
-        #when transfering models, should we freeze all but the last N layers?
-        if cfg.FREEZE_LAYERS:
-            num_to_freeze = len(kl.model.layers) - cfg.NUM_LAST_LAYERS_TO_TRAIN 
-            print('freezing %d layers' % num_to_freeze)           
-            for i in range(num_to_freeze):
-                kl.model.layers[i].trainable = False        
-
-    if cfg.OPTIMIZER:
-        kl.set_optimizer(cfg.OPTIMIZER, cfg.LEARNING_RATE, cfg.LEARNING_RATE_DECAY)
-
+    kl = get_model_by_type(train_type, cfg)
     kl.compile()
 
     if cfg.PRINT_MODEL_SUMMARY:
         print(kl.model.summary())
-    
-    opts['keras_pilot'] = kl
-    opts['continuous'] = continuous
-    opts['model_type'] = model_type
 
-    extract_data_from_pickles(cfg, tub_names)
-
-    records = gather_records(cfg, tub_names, opts, verbose=True)
-    print('collating %d records ...' % (len(records)))
-    collate_records(records, gen_records, opts)
-
-    def generator(save_best, opts, data, batch_size, isTrainSet=True, min_records_to_train=1000):
-        
-        num_records = len(data)
-
-        while True:
-
-            if isTrainSet and opts['continuous']:
-                '''
-                When continuous training, we look for new records after each epoch.
-                This will add new records to the train and validation set.
-                '''
-                records = gather_records(cfg, tub_names, opts)
-                if len(records) > num_records:
-                    collate_records(records, gen_records, opts)
-                    new_num_rec = len(data)
-                    if new_num_rec > num_records:
-                        print('picked up', new_num_rec - num_records, 'new records!')
-                        num_records = new_num_rec 
-                        save_best.reset_best()
-                if num_records < min_records_to_train:
-                    print("not enough records to train. need %d, have %d. waiting..." % (min_records_to_train, num_records))
-                    time.sleep(10)
-                    continue
-
-            batch_data = []
-
-            keys = list(data.keys())
-
-            random.shuffle(keys)
-
-            kl = opts['keras_pilot']
-
-            if type(kl.model.output) is list:
-                model_out_shape = (2, 1)
-            else:
-                model_out_shape = kl.model.output.shape
-
-            if type(kl.model.input) is list:
-                model_in_shape = (2, 1)
-            else:    
-                model_in_shape = kl.model.input.shape
-
-            has_imu = type(kl) is KerasIMU
-            has_bvh = type(kl) is KerasBehavioral
-            img_out = type(kl) is KerasLatent
-            loc_out = type(kl) is KerasLocalizer
-            
-            if img_out:
-                import cv2
-
-            for key in keys:
-
-                if not key in data:
-                    continue
-
-                _record = data[key]
-
-                if _record['train'] != isTrainSet:
-                    continue
-
-                if continuous:
-                    #in continuous mode we need to handle files getting deleted
-                    filename = _record['image_path']
-                    if not os.path.exists(filename):
-                        data.pop(key, None)
-                        continue
-
-                batch_data.append(_record)
-
-                if len(batch_data) == batch_size:
-                    inputs_img = []
-                    inputs_imu = []
-                    inputs_bvh = []
-                    angles = []
-                    throttles = []
-                    out_img = []
-                    out_loc = []
-                    out = []
-
-                    for record in batch_data:
-                        #get image data if we don't already have it
-                        if record['img_data'] is None:
-                            filename = record['image_path']
-                            
-                            img_arr = load_scaled_image_arr(filename, cfg)
-
-                            if img_arr is None:
-                                break
-                            
-                            if aug:
-                                img_arr = augment_image(img_arr)
-
-                            if cfg.CACHE_IMAGES:
-                                record['img_data'] = img_arr
-                        else:
-                            img_arr = record['img_data']
-                            
-                        if img_out:                            
-                            rz_img_arr = cv2.resize(img_arr, (127, 127)) / 255.0
-                            out_img.append(rz_img_arr[:,:,0].reshape((127, 127, 1)))
-
-                        if loc_out:
-                            out_loc.append(record['location'])
-                            
-                        if has_imu:
-                            inputs_imu.append(record['imu_array'])
-                        
-                        if has_bvh:
-                            inputs_bvh.append(record['behavior_arr'])
-
-                        inputs_img.append(img_arr)
-                        angles.append(record['angle'])
-                        throttles.append(record['throttle'])
-                        out.append([record['angle'], record['throttle']])
-
-                    if img_arr is None:
-                        continue
-
-                    img_arr = np.array(inputs_img).reshape(batch_size,\
-                        cfg.TARGET_H, cfg.TARGET_W, cfg.TARGET_D)
-
-                    if has_imu:
-                        X = [img_arr, np.array(inputs_imu)]
-                    elif has_bvh:
-                        X = [img_arr, np.array(inputs_bvh)]
-                    else:
-                        X = [img_arr]
-
-                    if img_out:
-                        y = [out_img, np.array(angles), np.array(throttles)]
-                    elif out_loc:
-                        y = [ np.array(angles), np.array(throttles), np.array(out_loc)]
-                    elif model_out_shape[1] == 2:
-                        y = [np.array([out]).reshape(batch_size, 2) ]
-                    else:
-                        y = [np.array(angles), np.array(throttles)]
-
-                    yield X, y
-
-                    batch_data = []
-    
-    model_path = os.path.expanduser(model_name)
-
-    
-    #checkpoint to save model after each epoch and send best to the pi.
-    save_best = MyCPCallback(send_model_cb=on_best_model,
-                                    filepath=model_path,
-                                    monitor='val_loss', 
-                                    verbose=verbose, 
-                                    save_best_only=True, 
-                                    mode='min',
-                                    cfg=cfg)
-
-    train_gen = generator(save_best, opts, gen_records, cfg.BATCH_SIZE, True)
-    val_gen = generator(save_best, opts, gen_records, cfg.BATCH_SIZE, False)
-    
-    total_records = len(gen_records)
-
-    num_train = 0
-    num_val = 0
-
-    for key, _record in gen_records.items():
-        if _record['train'] == True:
-            num_train += 1
-        else:
-            num_val += 1
-
-    print("train: %d, val: %d" % (num_train, num_val))
-    print('total records: %d' %(total_records))
-    
-    if not continuous:
-        steps_per_epoch = num_train // cfg.BATCH_SIZE
-    else:
-        steps_per_epoch = 100
-    
-    val_steps = num_val // cfg.BATCH_SIZE
-    print('steps_per_epoch', steps_per_epoch)
-
-    cfg.model_type = model_type
-
-    go_train(kl, cfg, train_gen, val_gen, gen_records, model_name, steps_per_epoch, val_steps, continuous, verbose, save_best)
-
-    
-    
-def go_train(kl, cfg, train_gen, val_gen, gen_records, model_name, steps_per_epoch, val_steps, continuous, verbose, save_best=None):
-
-    start = time.time()
-
-    model_path = os.path.expanduser(model_name)
-
-    #checkpoint to save model after each epoch and send best to the pi.
-    if save_best is None:
-        save_best = MyCPCallback(send_model_cb=on_best_model,
-                                    filepath=model_path,
-                                    monitor='val_loss', 
-                                    verbose=verbose, 
-                                    save_best_only=True, 
-                                    mode='min',
-                                    cfg=cfg)
-
-    #stop training if the validation error stops improving.
-    early_stop = keras.callbacks.EarlyStopping(monitor='val_loss', 
-                                                min_delta=cfg.MIN_DELTA, 
-                                                patience=cfg.EARLY_STOP_PATIENCE, 
-                                                verbose=verbose, 
-                                                mode='auto')
-
-    if steps_per_epoch < 2:
-        raise Exception("Too little data to train. Please record more records.")
-
+<<<<<<< HEAD
     if continuous:
         epochs = 100000
     else:
@@ -1021,12 +594,48 @@ def preprocessFileList( filelist ):
     return dirs
 
 if __name__ == "__main__":
+=======
+    batch_size = cfg.BATCH_SIZE
+    dataset = TubDataset(tub_paths, test_size=(1. - cfg.TRAIN_TEST_SPLIT))
+    training_records, validation_records = dataset.train_test_split()
+    print('Records # Training %s' % (len(training_records)))
+    print('Records # Validation %s' % (len(validation_records)))
+
+    training = TubSequence(kl, cfg, training_records)
+    validation = TubSequence(kl, cfg, validation_records)
+
+    # Setup early stoppage callbacks
+    callbacks = [
+        EarlyStopping(monitor='val_loss', patience=cfg.EARLY_STOP_PATIENCE),
+        ModelCheckpoint(
+            filepath=output_path,
+            monitor='val_loss',
+            save_best_only=True,
+            verbose=1,
+        )
+    ]
+
+    kl.model.fit_generator(
+        generator=training,
+        steps_per_epoch=len(training),
+        callbacks=callbacks,
+        validation_data=validation,
+        validation_steps=len(validation),
+        epochs=cfg.MAX_EPOCHS,
+        verbose=cfg.VERBOSE_TRAIN,
+        workers=1,
+        use_multiprocessing=False
+    )
+
+
+def main():
+>>>>>>> Add a new datastore format.
     args = docopt(__doc__)
-    cfg = dk.load_config()
-    tub = args['--tub']
+    cfg = donkeycar.load_config()
+    tubs = args['--tubs']
     model = args['--model']
-    transfer = args['--transfer']
     model_type = args['--type']
+<<<<<<< HEAD
 
     if model_type is None:
         model_type = cfg.DEFAULT_MODEL_TYPE
@@ -1041,5 +650,16 @@ if __name__ == "__main__":
     if tub is not None:
         tub_paths = [os.path.expanduser(n) for n in tub.split(',')]
         dirs.extend( tub_paths )
+=======
+>>>>>>> Add a new datastore format.
 
-    multi_train(cfg, dirs, model, transfer, model_type, continuous, aug)
+    if not model_type:
+        model_type = cfg.DEFAULT_MODEL_TYPE
+
+    tubs = tubs.split(',')
+    data_paths = [Path(os.path.expanduser(tub)).absolute().as_posix() for tub in tubs]
+    output_path = os.path.expanduser(model)
+    train(cfg, data_paths, output_path, model_type)
+
+if __name__ == "__main__":
+    main()
